@@ -1,0 +1,27 @@
+[project]
+name = "ai-service"
+version = "0.1.0"
+description = "AI Service for NewArch - LLM and Embedding"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "openai>=1.10.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "httpx>=0.26.0",
+    "pymilvus>=2.3.0",
+    "PyJWT>=2.8.0",
+    "pillow>=10.2.0",
+    "volcengine-python-sdk[ark]>=5.0.8",
+    "langgraph>=0.2.0",
+    "rank-bm25>=0.2.2",
+    "langfuse>=2.50.0",
+    "browser-use>=0.11.0,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+]

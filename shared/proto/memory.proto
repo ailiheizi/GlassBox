@@ -1,0 +1,207 @@
+syntax = "proto3";
+
+package memory;
+
+option go_package = "github.com/newarch/shared/proto/memory";
+
+import "common.proto";
+
+// 记忆服务
+service MemoryService {
+  // 保存语义记忆
+  rpc SaveMemory(SaveMemoryRequest) returns (SaveMemoryResponse);
+
+  // 搜索语义记忆
+  rpc SearchMemories(SearchMemoriesRequest) returns (SearchMemoriesResponse);
+
+  // 获取最近记忆
+  rpc GetRecentMemories(GetRecentMemoriesRequest) returns (GetRecentMemoriesResponse);
+
+  // 删除记忆
+  rpc DeleteMemory(DeleteMemoryRequest) returns (common.Status);
+
+  // 创建记忆区域
+  rpc CreateZone(CreateZoneRequest) returns (MemoryZone);
+
+  // 获取区域列表
+  rpc ListZones(ListZonesRequest) returns (ListZonesResponse);
+
+  // 添加区域记忆
+  rpc AddZoneMemory(AddZoneMemoryRequest) returns (ZoneMemory);
+
+  // 获取区域记忆
+  rpc GetZoneMemories(GetZoneMemoriesRequest) returns (GetZoneMemoriesResponse);
+
+  // 保存聊天消息
+  rpc SaveChatMessage(SaveChatMessageRequest) returns (ChatMessage);
+
+  // 获取聊天历史
+  rpc GetChatHistory(GetChatHistoryRequest) returns (GetChatHistoryResponse);
+}
+
+// 语义记忆
+message SemanticMemory {
+  int64 id = 1;
+  string user_id = 2;
+  string session_id = 3;
+  string content = 4;
+  string content_type = 5;
+  string source_url = 6;
+  string page_title = 7;
+  string metadata = 8; // JSON
+  bool is_active = 9;
+  int64 created_at = 10;
+  float similarity_score = 11; // 搜索时返回
+}
+
+// 保存记忆请求
+message SaveMemoryRequest {
+  string user_id = 1;
+  string session_id = 2;
+  string content = 3;
+  string content_type = 4;
+  string source_url = 5;
+  string page_title = 6;
+  string metadata = 7;
+}
+
+// 保存记忆响应
+message SaveMemoryResponse {
+  int64 id = 1;
+  bool success = 2;
+  string error = 3;
+}
+
+// 搜索记忆请求
+message SearchMemoriesRequest {
+  string user_id = 1;
+  string query = 2;
+  int32 limit = 3;
+  string content_type = 4; // 可选过滤
+  string session_id = 5; // 可选过滤
+}
+
+// 搜索记忆响应
+message SearchMemoriesResponse {
+  repeated SemanticMemory memories = 1;
+}
+
+// 获取最近记忆请求
+message GetRecentMemoriesRequest {
+  string user_id = 1;
+  int32 limit = 2;
+  string session_id = 3;
+}
+
+// 获取最近记忆响应
+message GetRecentMemoriesResponse {
+  repeated SemanticMemory memories = 1;
+}
+
+// 删除记忆请求
+message DeleteMemoryRequest {
+  int64 id = 1;
+  string user_id = 2;
+}
+
+// 记忆区域
+message MemoryZone {
+  int64 id = 1;
+  string zone_id = 2;
+  string user_id = 3;
+  string session_id = 4;
+  string description = 5;
+  string zone_type = 6;
+  bool is_active = 7;
+  int64 created_at = 8;
+}
+
+// 创建区域请求
+message CreateZoneRequest {
+  string user_id = 1;
+  string session_id = 2;
+  string zone_id = 3;
+  string description = 4;
+  string zone_type = 5;
+}
+
+// 获取区域列表请求
+message ListZonesRequest {
+  string user_id = 1;
+  string session_id = 2;
+}
+
+// 获取区域列表响应
+message ListZonesResponse {
+  repeated MemoryZone zones = 1;
+}
+
+// 区域记忆
+message ZoneMemory {
+  int64 id = 1;
+  string zone_id = 2;
+  string user_id = 3;
+  string content = 4;
+  string content_type = 5;
+  int32 sequence_number = 6;
+  string source_url = 7;
+  string page_title = 8;
+  string metadata = 9;
+  int64 created_at = 10;
+}
+
+// 添加区域记忆请求
+message AddZoneMemoryRequest {
+  string user_id = 1;
+  string zone_id = 2;
+  string content = 3;
+  string content_type = 4;
+  string source_url = 5;
+  string page_title = 6;
+  string metadata = 7;
+}
+
+// 获取区域记忆请求
+message GetZoneMemoriesRequest {
+  string user_id = 1;
+  string zone_id = 2;
+}
+
+// 获取区域记忆响应
+message GetZoneMemoriesResponse {
+  repeated ZoneMemory memories = 1;
+}
+
+// 聊天消息
+message ChatMessage {
+  int64 id = 1;
+  string session_id = 2;
+  string user_id = 3;
+  string role = 4; // user, assistant, system, tool
+  string content = 5;
+  string tool_calls = 6; // JSON
+  string metadata = 7; // JSON
+  int64 created_at = 8;
+}
+
+// 保存聊天消息请求
+message SaveChatMessageRequest {
+  string user_id = 1;
+  string session_id = 2;
+  string role = 3;
+  string content = 4;
+  string tool_calls = 5;
+  string metadata = 6;
+}
+
+// 获取聊天历史请求
+message GetChatHistoryRequest {
+  string user_id = 1;
+  string session_id = 2;
+  int32 limit = 3;
+}
+
+// 获取聊天历史响应
+message GetChatHistoryResponse {
+  repeated ChatMessage messages = 1;
+}

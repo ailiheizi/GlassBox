@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package auth;
+
+option go_package = "github.com/newarch/shared/proto/auth";
+
+import "common.proto";
+
+// 认证服务
+service AuthService {
+  // 验证Token (供Gateway调用)
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+
+  // 获取用户信息 (供其他服务调用)
+  rpc GetUser(GetUserRequest) returns (User);
+
+  // 内部: 通过ID获取用户
+  rpc GetUserByID(GetUserByIDRequest) returns (User);
+}
+
+// 用户信息
+message User {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  int64 created_at = 4;
+  int64 updated_at = 5;
+}
+
+// 验证Token请求
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+// 验证Token响应
+message ValidateTokenResponse {
+  bool valid = 1;
+  string user_id = 2;
+  string username = 3;
+  string error = 4;
+  int64 expires_at = 5;
+}
+
+// 获取用户请求
+message GetUserRequest {
+  string user_id = 1;
+}
+
+// 通过ID获取用户请求
+message GetUserByIDRequest {
+  string id = 1;
+}

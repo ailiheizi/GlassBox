@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package common;
+
+option go_package = "github.com/newarch/shared/proto/common";
+
+// 通用时间戳
+message Timestamp {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+// 分页请求
+message PaginationRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+}
+
+// 分页响应
+message PaginationResponse {
+  int32 total = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_pages = 4;
+}
+
+// 通用响应状态
+message Status {
+  int32 code = 1;
+  string message = 2;
+}
+
+// 空请求
+message Empty {}
+
+// 用户上下文 (内部服务间传递)
+message UserContext {
+  string user_id = 1;
+  string request_id = 2;
+}

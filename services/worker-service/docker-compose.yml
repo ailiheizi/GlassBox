@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: newarch-worker
+    ports:
+      - "9000:9000"
+    volumes:
+      # 挂载 Docker socket 以便管理容器
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WORKER_ID=worker-01
+      - CORE_SERVICE_URL=http://gateway:8080
+      - LISTEN_ADDR=:9000
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key}
+      - MAX_CONTAINERS=50
+      - MAX_CONCURRENT_TASKS=10
+      - NETWORK_MODE=none
+      - READ_ONLY_ROOT_FS=true
+    restart: unless-stopped
+    networks:
+      - worker-network
+
+networks:
+  worker-network:
+    driver: bridge

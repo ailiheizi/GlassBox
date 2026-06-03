@@ -1,0 +1,721 @@
+openapi: 3.0.3
+info:
+  title: NewArch API
+  description: NewArch 微服务平台 API 文档
+  version: 1.0.0
+  contact:
+    name: NewArch Team
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 本地开发环境
+
+tags:
+  - name: Auth
+    description: 认证相关接口
+  - name: Browser
+    description: 浏览器自动化接口
+  - name: Memory
+    description: 记忆管理接口
+  - name: Index
+    description: 索引管理接口
+  - name: Task
+    description: 任务管理接口
+  - name: AI
+    description: AI服务接口
+
+paths:
+  # ==================== Auth ====================
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: 用户注册
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  maxLength: 50
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+      responses:
+        '201':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: 请求参数错误
+        '409':
+          description: 用户名或邮箱已存在
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 用户登录
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: 用户名或密码错误
+
+  /auth/profile:
+    get:
+      tags: [Auth]
+      summary: 获取用户信息
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: 未授权
+
+  # ==================== Browser ====================
+  /browser/chat:
+    post:
+      tags: [Browser]
+      summary: 执行浏览器任务
+      description: 使用SSE流式返回任务执行结果
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [task]
+              properties:
+                task:
+                  type: string
+                  description: 任务描述
+                session_id:
+                  type: string
+                  format: uuid
+                  description: 会话ID (可选)
+      responses:
+        '200':
+          description: SSE流式响应
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /browser/sessions:
+    get:
+      tags: [Browser]
+      summary: 获取会话列表
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Session'
+    post:
+      tags: [Browser]
+      summary: 创建会话
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                metadata:
+                  type: object
+      responses:
+        '201':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+
+  /browser/sessions/{session_id}:
+    delete:
+      tags: [Browser]
+      summary: 关闭会话
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 关闭成功
+        '404':
+          description: 会话不存在
+
+  # ==================== Memory ====================
+  /memory/semantic:
+    post:
+      tags: [Memory]
+      summary: 保存语义记忆
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                content_type:
+                  type: string
+                  enum: [general, chat_message, page_summary, user_note, tool_result]
+                source_url:
+                  type: string
+                page_title:
+                  type: string
+                session_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: 保存成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+
+  /memory/semantic/search:
+    get:
+      tags: [Memory]
+      summary: 搜索记忆
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Memory'
+
+  /memory/zones:
+    get:
+      tags: [Memory]
+      summary: 列出记忆区域
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  zones:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MemoryZone'
+    post:
+      tags: [Memory]
+      summary: 创建记忆区域
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [zone_id]
+              properties:
+                zone_id:
+                  type: string
+                description:
+                  type: string
+                zone_type:
+                  type: string
+      responses:
+        '201':
+          description: 创建成功
+
+  # ==================== Index ====================
+  /indexes/search:
+    get:
+      tags: [Index]
+      summary: 联合搜索索引
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: service_name
+          in: query
+          schema:
+            type: string
+        - name: tags
+          in: query
+          schema:
+            type: array
+            items:
+              type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  system_indexes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SystemIndex'
+                  ai_indexes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AIIndex'
+
+  /indexes/ai:
+    get:
+      tags: [Index]
+      summary: 列出AI索引
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  indexes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AIIndex'
+    post:
+      tags: [Index]
+      summary: 创建AI索引
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AIIndexCreate'
+      responses:
+        '201':
+          description: 创建成功
+
+  # ==================== Task ====================
+  /tasks:
+    get:
+      tags: [Task]
+      summary: 列出任务
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+    post:
+      tags: [Task]
+      summary: 创建任务
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+      responses:
+        '201':
+          description: 创建成功
+
+  /tasks/{task_id}:
+    get:
+      tags: [Task]
+      summary: 获取任务详情
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+    delete:
+      tags: [Task]
+      summary: 取消任务
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 取消成功
+
+  # ==================== AI ====================
+  /ai/chat:
+    post:
+      tags: [AI]
+      summary: AI聊天
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+
+  /ai/embedding:
+    post:
+      tags: [AI]
+      summary: 生成Embedding
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  embedding:
+                    type: array
+                    items:
+                      type: number
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+
+    Session:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+
+    Memory:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: string
+          format: uuid
+        content:
+          type: string
+        content_type:
+          type: string
+        source_url:
+          type: string
+        page_title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    MemoryZone:
+      type: object
+      properties:
+        id:
+          type: integer
+        zone_id:
+          type: string
+        user_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+        zone_type:
+          type: string
+        is_active:
+          type: boolean
+
+    SystemIndex:
+      type: object
+      properties:
+        id:
+          type: integer
+        service_name:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    AIIndex:
+      type: object
+      properties:
+        id:
+          type: integer
+        user_id:
+          type: string
+          format: uuid
+        service_name:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    AIIndexCreate:
+      type: object
+      required: [url, title]
+      properties:
+        service_name:
+          type: string
+        url:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        progress:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    TaskCreate:
+      type: object
+      required: [type, title]
+      properties:
+        type:
+          type: string
+          enum: [browse, search, extract, analyze, custom]
+        title:
+          type: string
+        description:
+          type: string
+        input:
+          type: object
+
+    ChatRequest:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+                enum: [user, assistant, system]
+              content:
+                type: string
+        tools:
+          type: array
+          items:
+            type: object
+
+    ChatResponse:
+      type: object
+      properties:
+        message:
+          type: object
+          properties:
+            role:
+              type: string
+            content:
+              type: string
+            tool_calls:
+              type: array
+              items:
+                type: object
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer

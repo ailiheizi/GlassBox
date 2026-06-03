@@ -1,0 +1,288 @@
+# https://taskfile.dev
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  SANDBOX_IMAGE: newarch-sandbox
+  SANDBOX_TAG: latest
+  SANDBOX_DIR: ./sandbox
+  DC: docker compose
+  DC_LANGFUSE: docker compose -f langfuse-compose.yml
+
+silent: true
+
+tasks:
+  # ==================== 默认 ====================
+  default:
+    desc: 显示所有可用命令
+    cmds:
+      - task --list-all
+
+  # ==================== 启动 / 停止 ====================
+  dev:
+    desc: 一键启动开发环境（含 Langfuse）
+    cmds:
+      - task: check-env
+      - task: ensure-sandbox
+      - task: langfuse-up
+      - task: infra-up
+      - task: services-up
+      - echo ""
+      - echo "====== 启动完成 ======"
+      - echo "  Frontend   http://localhost:3000"
+      - echo "  Gateway    http://localhost:8080"
+      - echo "  Worker     http://localhost:9000"
+      - echo "  Langfuse   http://localhost:3100"
+      - echo ""
+      - echo "  查看日志   task logs"
+      - echo "  停止环境   task down"
+
+  up:
+    desc: 启动所有服务（不含 Langfuse）
+    cmds:
+      - task: check-env
+      - task: ensure-sandbox
+      - task: infra-up
+      - task: services-up
+      - echo ""
+      - echo "====== 启动完成 ======"
+      - echo "  Frontend   http://localhost:3000"
+      - echo "  Gateway    http://localhost:8080"
+      - echo "  Worker     http://localhost:9000"
+
+  prod:
+    desc: 部署生产环境（不含 Langfuse，含健康检查）
+    cmds:
+      - task: check-env-prod
+      - task: build
+      - task: infra-up
+      - task: services-up
+      - task: healthcheck
+      - echo ""
+      - echo "====== 部署完成 ======"
+      - echo "  Frontend   http://localhost:3000"
+      - echo "  Gateway    http://localhost:8080"
+      - echo "  Worker     http://localhost:9000"
+
+  down:
+    desc: 停止所有服务（含 Langfuse）
+    cmds:
+      - echo "====== 停止所有服务 ======"
+      - "{{.DC}} down"
+      - cmd: "{{.DC_LANGFUSE}} down"
+        ignore_error: true
+      - echo "已停止"
+
+  restart:
+    desc: "重启指定服务 (task restart -- ai-service)"
+    cmds:
+      - cmd: |
+          {{if .CLI_ARGS}}
+            echo "重启 {{.CLI_ARGS}}..."
+            {{.DC}} up -d --build {{.CLI_ARGS}}
+          {{else}}
+            echo "重启所有服务..."
+            {{.DC}} restart
+          {{end}}
+
+  logs:
+    desc: "查看日志 (task logs -- ai-service)"
+    cmds:
+      - cmd: |
+          {{if .CLI_ARGS}}
+            {{.DC}} logs -f --tail=100 {{.CLI_ARGS}}
+          {{else}}
+            {{.DC}} logs -f --tail=100
+          {{end}}
+
+  status:
+    desc: 查看所有容器状态
+    cmds:
+      - echo "====== NewArch 服务 ======"
+      - "{{.DC}} ps"
+      - cmd: |
+          if [ -f langfuse-compose.yml ]; then
+            echo ""
+            echo "====== Langfuse 服务 ======"
+            {{.DC_LANGFUSE}} ps
+          fi
+        ignore_error: true
+
+  clean:
+    desc: 停止并删除所有数据卷（不可恢复）
+    prompt: 确认删除所有数据卷？此操作不可恢复
+    cmds:
+      - "{{.DC}} down -v"
+      - cmd: "{{.DC_LANGFUSE}} down -v"
+        ignore_error: true
+      - echo "已清除"
+
+  # ==================== 构建 ====================
+  build:
+    desc: 构建所有 Docker 镜像（含沙箱）
+    cmds:
+      - task: ensure-sandbox
+      - echo "====== 构建所有服务镜像 ======"
+      - "{{.DC}} build"
+      - echo "构建完成"
+
+  build:sandbox:
+    desc: 构建沙箱镜像
+    preconditions:
+      - sh: test -f {{.SANDBOX_DIR}}/Dockerfile
+        msg: "sandbox/Dockerfile 不存在"
+    cmds:
+      - echo "====== 构建沙箱镜像 ======"
+      - mkdir -p {{.SANDBOX_DIR}}/config/xfce4
+      - docker build -t {{.SANDBOX_IMAGE}}:{{.SANDBOX_TAG}} -f {{.SANDBOX_DIR}}/Dockerfile {{.SANDBOX_DIR}}
+      - echo "构建完成 {{.SANDBOX_IMAGE}}:{{.SANDBOX_TAG}}"
+
+  # ==================== Langfuse ====================
+  langfuse:up:
+    desc: 启动 Langfuse 服务
+    cmds:
+      - "{{.DC}} up -d --no-start 2>/dev/null || true"
+      - "{{.DC_LANGFUSE}} up -d"
+      - echo "Langfuse http://localhost:3100"
+
+  langfuse:down:
+    desc: 停止 Langfuse 服务
+    cmds:
+      - "{{.DC_LANGFUSE}} down"
+
+  langfuse:status:
+    desc: 检查 Langfuse 服务状态
+    cmds:
+      - "{{.DC_LANGFUSE}} ps"
+      - echo "Dashboard http://localhost:3100"
+
+  langfuse:logs:
+    desc: "查看 Langfuse 日志 (task langfuse:logs -- langfuse-web)"
+    cmds:
+      - cmd: |
+          {{if .CLI_ARGS}}
+            {{.DC_LANGFUSE}} logs -f --tail=50 {{.CLI_ARGS}}
+          {{else}}
+            {{.DC_LANGFUSE}} logs -f --tail=50 langfuse-web
+          {{end}}
+
+  # ==================== 测试 ====================
+  test:
+    desc: 运行所有测试
+    deps: [test:go, test:python]
+
+  test:go:
+    desc: 运行 Go 测试
+    cmds:
+      - cd gateway && go test ./...
+      - cd services/auth-service && go test ./...
+      - cd services/memory-service && go test ./...
+      - cd services/index-service && go test ./...
+      - cd services/task-service && go test ./...
+      - cd services/worker-service && go test ./...
+
+  test:python:
+    desc: 运行 Python 测试
+    cmds:
+      - cd services/ai-service && pytest
+      - cd services/browser-service && pytest
+
+  # ==================== 代码质量 ====================
+  fmt:
+    desc: 格式化所有代码
+    deps: [fmt:go, fmt:python]
+
+  fmt:go:
+    desc: 格式化 Go 代码
+    cmds:
+      - gofmt -w gateway/ services/auth-service/ services/memory-service/ services/index-service/ services/task-service/ services/worker-service/
+
+  fmt:python:
+    desc: 格式化 Python 代码
+    cmds:
+      - cd services/ai-service && black src/ && isort src/
+      - cd services/browser-service && black src/ && isort src/
+
+  lint:
+    desc: 代码检查
+    deps: [lint:go, lint:python]
+
+  lint:go:
+    desc: Go 代码检查
+    cmds:
+      - golangci-lint run ./gateway/... ./services/auth-service/... ./services/memory-service/... ./services/index-service/... ./services/task-service/... ./services/worker-service/...
+
+  lint:python:
+    desc: Python 代码检查
+    cmds:
+      - cd services/ai-service && flake8 src/
+      - cd services/browser-service && flake8 src/
+
+  # ==================== 内部任务 ====================
+  check-env:
+    internal: true
+    preconditions:
+      - sh: test -f .env
+        msg: ".env 不存在，请从 .env.example 复制并填写配置: cp .env.example .env"
+
+  check-env-prod:
+    internal: true
+    preconditions:
+      - sh: test -f .env
+        msg: ".env 不存在"
+      - sh: 'grep -q "^JWT_SECRET=" .env && ! grep -q "your-.*-change" .env'
+        msg: "生产环境必须配置真实的密钥（JWT_SECRET / DOUBAO_API_KEY / SANDBOX_SECRET），请编辑 .env"
+
+  ensure-sandbox:
+    internal: true
+    status:
+      - docker image inspect {{.SANDBOX_IMAGE}}:{{.SANDBOX_TAG}} >/dev/null 2>&1
+    cmds:
+      - echo "[sandbox] 镜像不存在，开始构建..."
+      - task: build:sandbox
+
+  langfuse-up:
+    internal: true
+    cmds:
+      - cmd: |
+          if [ "$LANGFUSE_ENABLED" = "true" ] && [ -f langfuse-compose.yml ]; then
+            echo "[langfuse] 启动..."
+            {{.DC}} up -d --no-start 2>/dev/null || true
+            {{.DC_LANGFUSE}} up -d
+            echo "[langfuse] http://localhost:3100"
+          else
+            echo "[langfuse] 未启用 (LANGFUSE_ENABLED != true)，跳过"
+          fi
+
+  infra-up:
+    internal: true
+    cmds:
+      - echo "[infra] 启动基础设施..."
+      - "{{.DC}} up -d postgres redis milvus-etcd milvus-minio"
+      - echo "[infra] 等待基础设施就绪..."
+      - "{{.DC}} up -d --wait postgres redis milvus-etcd milvus-minio"
+      - "{{.DC}} up -d milvus"
+      - "{{.DC}} up -d --wait milvus"
+      - echo "[infra] 就绪"
+
+  services-up:
+    internal: true
+    cmds:
+      - echo "[services] 启动所有服务..."
+      - "{{.DC}} up -d"
+
+  healthcheck:
+    internal: true
+    cmds:
+      - cmd: |
+          echo "等待服务就绪..."
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "[OK] Gateway 健康检查通过"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "[WARN] Gateway 未响应，请检查: task logs -- gateway"
+          exit 1

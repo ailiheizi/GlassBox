@@ -1,0 +1,180 @@
+# NewArch Browser Service 配置文件示例
+# 支持 YAML 和 TOML 格式
+
+# 服务配置
+server:
+  host: "0.0.0.0"
+  port: 8084
+  debug: false
+
+# 默认 LLM 配置
+llm:
+  model: "doubao-pro-32k"
+  api_base: "${DOUBAO_API_BASE}"
+  api_key: "${DOUBAO_API_KEY}"
+  temperature: 0.7
+  max_tokens: 4096
+  timeout: 60
+
+# Agent 配置
+agents:
+  # 浏览器自动化 Agent
+  browser_agent:
+    type: browser
+    enabled: true
+    description: "浏览器自动化 Agent，用于网页操作和数据提取"
+    tools:
+      - navigate
+      - click
+      - type_text
+      - screenshot
+      - get_page_info
+      - find_elements
+      - scroll
+      - save_memory
+      - search_memory
+    system_prompt: |
+      你是一个浏览器自动化助手。你可以帮助用户完成各种网页操作任务。
+
+      可用工具：
+      - navigate: 导航到指定URL
+      - click: 点击页面元素
+      - type_text: 在输入框中输入文本
+      - screenshot: 截取页面截图
+      - get_page_info: 获取当前页面信息
+      - find_elements: 查找页面元素
+      - scroll: 滚动页面
+      - save_memory: 保存重要信息到记忆
+      - search_memory: 搜索历史记忆
+
+      执行任务时，请：
+      1. 先分析任务需求
+      2. 制定执行计划
+      3. 逐步执行并验证结果
+      4. 遇到问题时尝试其他方法
+    max_iterations: 15
+    timeout: 300
+
+  # 数据分析 Agent
+  data_agent:
+    type: data_analysis
+    enabled: true
+    description: "数据分析 Agent，用于处理和分析提取的数据"
+    tools:
+      - search_memory
+      - search_index
+      - save_memory
+    system_prompt: |
+      你是一个数据分析助手。你可以帮助用户分析和处理数据。
+    max_iterations: 10
+    timeout: 180
+
+  # 研究 Agent
+  research_agent:
+    type: research
+    enabled: true
+    description: "研究 Agent，用于深度信息收集和分析"
+    tools:
+      - navigate
+      - get_page_info
+      - find_elements
+      - scroll
+      - screenshot
+      - save_memory
+      - search_memory
+      - search_index
+    system_prompt: |
+      你是一个研究助手。你可以帮助用户进行深度信息收集和分析。
+
+      研究流程：
+      1. 理解研究主题
+      2. 制定搜索策略
+      3. 收集多个来源的信息
+      4. 交叉验证信息准确性
+      5. 整理并总结研究结果
+    max_iterations: 20
+    timeout: 600
+    metadata:
+      depth: "deep"
+      sources_min: 3
+
+  # 表单填写 Agent
+  form_agent:
+    type: custom
+    enabled: true
+    description: "表单填写 Agent，专门用于自动填写各类表单"
+    tools:
+      - navigate
+      - click
+      - type_text
+      - find_elements
+      - get_page_info
+      - screenshot
+    system_prompt: |
+      你是一个表单填写助手。你可以帮助用户自动填写各类网页表单。
+
+      填写流程：
+      1. 导航到表单页面
+      2. 识别所有表单字段
+      3. 根据提供的数据填写对应字段
+      4. 验证填写结果
+      5. 提交表单（如果需要）
+    max_iterations: 10
+    timeout: 120
+
+# 工具配置
+tools:
+  enabled:
+    - navigate
+    - click
+    - type_text
+    - wait_for_selector
+    - get_page_info
+    - screenshot
+    - find_elements
+    - scroll
+    - save_memory
+    - search_memory
+    - search_index
+    - create_index
+  plugins_dir: "./plugins"
+
+# 浏览器配置
+browser:
+  headless: true
+  stealth: true
+  proxy: null  # 格式: http://user:pass@host:port
+  viewport:
+    width: 1920
+    height: 1080
+  timeout: 30000
+  user_data_dir: null  # 用户数据目录，用于保持登录状态
+
+# 安全配置
+security:
+  max_concurrent_sessions: 10
+  session_timeout: 3600
+  allowed_domains: []  # 空表示允许所有域名
+  blocked_domains:
+    - "localhost"
+    - "127.0.0.1"
+    - "internal.*"
+
+# 记忆服务配置
+memory:
+  service_url: "http://memory-service:8082"
+  cache_ttl: 300
+
+# 索引服务配置
+index:
+  service_url: "http://index-service:8083"
+
+# AI 服务配置
+ai:
+  service_url: "http://ai-service:8086"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: null  # 日志文件路径，null 表示只输出到控制台
