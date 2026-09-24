@@ -134,7 +134,6 @@ tasks:
         msg: "sandbox/Dockerfile 不存在"
     cmds:
       - echo "====== 构建沙箱镜像 ======"
-      - mkdir -p {{.SANDBOX_DIR}}/config/xfce4
       - docker build -t {{.SANDBOX_IMAGE}}:{{.SANDBOX_TAG}} -f {{.SANDBOX_DIR}}/Dockerfile {{.SANDBOX_DIR}}
       - echo "构建完成 {{.SANDBOX_IMAGE}}:{{.SANDBOX_TAG}}"
 
