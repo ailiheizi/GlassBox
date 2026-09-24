@@ -1,28 +1,61 @@
 openapi: 3.0.3
 info:
-  title: NewArch API
-  description: NewArch 微服务平台 API 文档
-  version: 1.0.0
+  title: GlassBox API
+  description: |
+    GlassBox（历史名 NewArch）对外 API 规范。
+
+    **来源**：本规范中的路径以 `gateway/internal/router/routes.go` 与
+    `services/worker-service/internal/api/router.go`、
+    `services/worker-service/internal/api/sandbox_handler.go` 的声明为准。
+
+    **鉴权**：除 `/auth/register`、`/auth/login`、`/auth/refresh` 与各服务 `/health` 外，
+    所有端点都需要 `Authorization: Bearer <JWT>`。Gateway 会校验 JWT 并把
+    `X-User-ID`（取自 token claims）注入下游请求。
+
+    **已知未验证点**：
+    1. Gateway 代理统一剥离 `/api/v1/{service}` 前缀后再转发（`gateway/internal/proxy/http_proxy.go`）。
+       ai-service 的 `/sandbox/**`、browser-service 的 `/chat`、`/sessions` 与之匹配；
+       但 memory / index / task 服务自身注册的路径是 `/api/v1/memories`、`/api/v1/indexes`、`/api/v1/tasks`，
+       与剥离后的路径不一致。本规范记录的是 **Gateway 侧声明的路径**，端到端可用性未验证。
+    2. `/tasks/async*` 与 `/sessions*` 在 Gateway 侧有声明，但 task-service 当前只注册了同步
+       `/api/v1/tasks` 路由，异步处理器未接线（见 `docs/async-tasks-guide.md`）。
+    3. 各接口的请求/响应字段未逐一核对，标注为「结构未验证」的以服务实现为准。
+  version: 0.1.0
   contact:
-    name: NewArch Team
+    name: GlassBox Team
 
 servers:
   - url: http://localhost:8080/api/v1
-    description: 本地开发环境
+    description: Gateway（默认入口）
+  - url: http://localhost:9000/api/v1
+    description: Worker Manager（沙箱与工具直连，宿主已发布该端口）
 
 tags:
   - name: Auth
-    description: 认证相关接口
+    description: 认证（由 Auth Service 处理）
   - name: Browser
-    description: 浏览器自动化接口
+    description: 浏览器会话与对话（Browser Service）
   - name: Memory
-    description: 记忆管理接口
+    description: 语义记忆、记忆区域、聊天历史（Memory Service）
   - name: Index
-    description: 索引管理接口
+    description: 索引管理（Index Service）
   - name: Task
-    description: 任务管理接口
+    description: 任务（Task Service；async 子路由未接线）
+  - name: Session
+    description: 会话（Task Service）
   - name: AI
-    description: AI服务接口
+    description: AI 编排与沙箱（AI Service）
+  - name: Files
+    description: 沙箱文件管理（AI Service → Worker Manager → 沙箱 Agent）
+  - name: Screencast
+    description: CDP Screencast WebSocket
+  - name: Admin
+    description: 容器管理（Gateway 本地 Docker SDK）
+  - name: Worker
+    description: Worker Manager 直连端点
+
+security:
+  - bearerAuth: []
 
 paths:
   # ==================== Auth ====================
@@ -30,52 +63,32 @@ paths:
     post:
       tags: [Auth]
       summary: 用户注册
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [username, email, password]
-              properties:
-                username:
-                  type: string
-                  minLength: 3
-                  maxLength: 50
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
-                  minLength: 6
+              $ref: '#/components/schemas/RegisterRequest'
       responses:
-        '201':
+        '200':
           description: 注册成功
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-        '400':
-          description: 请求参数错误
-        '409':
-          description: 用户名或邮箱已存在
 
   /auth/login:
     post:
       tags: [Auth]
-      summary: 用户登录
+      summary: 登录
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [username, password]
-              properties:
-                username:
-                  type: string
-                password:
-                  type: string
+              $ref: '#/components/schemas/LoginRequest'
       responses:
         '200':
           description: 登录成功
@@ -83,15 +96,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
-        '401':
-          description: 用户名或密码错误
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新 Token
+      security: []
+      responses:
+        '200':
+          description: 成功
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 登出
+      responses:
+        '200':
+          description: 成功
 
   /auth/profile:
     get:
       tags: [Auth]
-      summary: 获取用户信息
-      security:
-        - bearerAuth: []
+      summary: 获取当前用户信息
       responses:
         '200':
           description: 成功
@@ -99,74 +125,43 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
-        '401':
-          description: 未授权
+    put:
+      tags: [Auth]
+      summary: 更新用户信息
+      responses:
+        '200':
+          description: 成功
 
   # ==================== Browser ====================
   /browser/chat:
     post:
       tags: [Browser]
-      summary: 执行浏览器任务
-      description: 使用SSE流式返回任务执行结果
-      security:
-        - bearerAuth: []
+      summary: 浏览器对话（SSE 流式）
       requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [task]
-              properties:
-                task:
-                  type: string
-                  description: 任务描述
-                session_id:
-                  type: string
-                  format: uuid
-                  description: 会话ID (可选)
+        $ref: '#/components/requestBodies/ChatBody'
       responses:
         '200':
-          description: SSE流式响应
-          content:
-            text/event-stream:
-              schema:
-                type: string
+          description: text/event-stream
 
   /browser/sessions:
     get:
       tags: [Browser]
-      summary: 获取会话列表
-      security:
-        - bearerAuth: []
+      summary: 会话列表
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  sessions:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Session'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Session'
     post:
       tags: [Browser]
       summary: 创建会话
-      security:
-        - bearerAuth: []
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                metadata:
-                  type: object
       responses:
-        '201':
-          description: 创建成功
+        '200':
+          description: 成功
           content:
             application/json:
               schema:
@@ -175,52 +170,28 @@ paths:
   /browser/sessions/{session_id}:
     delete:
       tags: [Browser]
-      summary: 关闭会话
-      security:
-        - bearerAuth: []
+      summary: 删除会话
       parameters:
-        - name: session_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/SessionId'
       responses:
         '200':
-          description: 关闭成功
-        '404':
-          description: 会话不存在
+          description: 成功
 
   # ==================== Memory ====================
   /memory/semantic:
     post:
       tags: [Memory]
-      summary: 保存语义记忆
-      security:
-        - bearerAuth: []
+      summary: 写入语义记忆
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [content]
-              properties:
-                content:
-                  type: string
-                content_type:
-                  type: string
-                  enum: [general, chat_message, page_summary, user_note, tool_result]
-                source_url:
-                  type: string
-                page_title:
-                  type: string
-                session_id:
-                  type: string
-                  format: uuid
+              description: 结构未验证，详见 memory-service
       responses:
-        '201':
-          description: 保存成功
+        '200':
+          description: 成功
           content:
             application/json:
               schema:
@@ -229,137 +200,176 @@ paths:
   /memory/semantic/search:
     get:
       tags: [Memory]
-      summary: 搜索记忆
-      security:
-        - bearerAuth: []
+      summary: 语义检索（向量）
       parameters:
         - name: query
           in: query
-          required: true
           schema:
             type: string
         - name: limit
           in: query
           schema:
             type: integer
-            default: 10
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Memory'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Memory'
+
+  /memory/recent:
+    get:
+      tags: [Memory]
+      summary: 最近记忆
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Memory'
+
+  /memory/semantic/{id}:
+    delete:
+      tags: [Memory]
+      summary: 删除语义记忆
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
 
   /memory/zones:
     get:
       tags: [Memory]
-      summary: 列出记忆区域
-      security:
-        - bearerAuth: []
+      summary: 记忆区域列表
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  zones:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/MemoryZone'
+                type: array
+                items:
+                  $ref: '#/components/schemas/MemoryZone'
     post:
       tags: [Memory]
       summary: 创建记忆区域
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [zone_id]
-              properties:
-                zone_id:
-                  type: string
-                description:
-                  type: string
-                zone_type:
-                  type: string
       responses:
-        '201':
-          description: 创建成功
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryZone'
+
+  /memory/zones/{id}:
+    delete:
+      tags: [Memory]
+      summary: 删除记忆区域
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+
+  /memory/zones/{id}/memories:
+    get:
+      tags: [Memory]
+      summary: 区域内的记忆
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+    post:
+      tags: [Memory]
+      summary: 向区域添加记忆
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+
+  /memory/chat-history:
+    post:
+      tags: [Memory]
+      summary: 保存聊天消息
+      responses:
+        '200':
+          description: 成功
+
+  /memory/chat-history/{session_id}:
+    get:
+      tags: [Memory]
+      summary: 获取聊天历史
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 成功
+    delete:
+      tags: [Memory]
+      summary: 删除聊天历史
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 成功
 
   # ==================== Index ====================
   /indexes/search:
     get:
       tags: [Index]
-      summary: 联合搜索索引
-      security:
-        - bearerAuth: []
+      summary: 索引检索
       parameters:
-        - name: query
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: service_name
+        - name: q
           in: query
           schema:
             type: string
-        - name: tags
-          in: query
-          schema:
-            type: array
-            items:
-              type: string
+      responses:
+        '200':
+          description: 成功
+
+  /indexes/system:
+    get:
+      tags: [Index]
+      summary: 系统索引（预置站点）
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  system_indexes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/SystemIndex'
-                  ai_indexes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AIIndex'
+                type: array
+                items:
+                  $ref: '#/components/schemas/AIIndex'
 
   /indexes/ai:
     get:
       tags: [Index]
-      summary: 列出AI索引
-      security:
-        - bearerAuth: []
+      summary: AI 索引列表
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  indexes:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AIIndex'
+                type: array
+                items:
+                  $ref: '#/components/schemas/AIIndex'
     post:
       tags: [Index]
-      summary: 创建AI索引
-      security:
-        - bearerAuth: []
+      summary: 创建 AI 索引
       requestBody:
         required: true
         content:
@@ -367,44 +377,56 @@ paths:
             schema:
               $ref: '#/components/schemas/AIIndexCreate'
       responses:
-        '201':
-          description: 创建成功
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AIIndex'
+
+  /indexes/ai/{id}:
+    get:
+      tags: [Index]
+      summary: 获取 AI 索引
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+    put:
+      tags: [Index]
+      summary: 更新 AI 索引
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
+    delete:
+      tags: [Index]
+      summary: 删除 AI 索引
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: 成功
 
   # ==================== Task ====================
   /tasks:
     get:
       tags: [Task]
-      summary: 列出任务
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, running, completed, failed, cancelled]
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
+      summary: 任务列表
       responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  tasks:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Task'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Task'
     post:
       tags: [Task]
       summary: 创建任务
-      security:
-        - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -412,81 +434,539 @@ paths:
             schema:
               $ref: '#/components/schemas/TaskCreate'
       responses:
-        '201':
-          description: 创建成功
-
-  /tasks/{task_id}:
-    get:
-      tags: [Task]
-      summary: 获取任务详情
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: task_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
         '200':
           description: 成功
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Task'
-    delete:
-      tags: [Task]
-      summary: 取消任务
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: task_id
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        '200':
-          description: 取消成功
 
-  # ==================== AI ====================
-  /ai/chat:
-    post:
-      tags: [AI]
-      summary: AI聊天
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ChatRequest'
+  /tasks/{task_id}:
+    get:
+      tags: [Task]
+      summary: 获取任务
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
       responses:
         '200':
           description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ChatResponse'
+    delete:
+      tags: [Task]
+      summary: 删除任务
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
 
-  /ai/embedding:
+  /tasks/async:
+    description: |
+      **未接线**：Gateway 已声明该路由，但 task-service 未注册 `/tasks/async`，调用不会成功。
+      见 `docs/async-tasks-guide.md`。
+    get:
+      tags: [Task]
+      summary: 异步任务列表（未接线）
+      responses:
+        '200':
+          description: 成功
     post:
-      tags: [AI]
-      summary: 生成Embedding
-      security:
-        - bearerAuth: []
+      tags: [Task]
+      summary: 创建异步任务（未接线）
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [text]
+              description: 结构未验证（见 async_task_handler.go）
+      responses:
+        '200':
+          description: 成功
+
+  /tasks/async/stats:
+    get:
+      tags: [Task]
+      summary: 异步任务统计（未接线）
+      responses:
+        '200':
+          description: 成功
+
+  /tasks/async/{task_id}:
+    get:
+      tags: [Task]
+      summary: 查询异步任务（未接线）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+    delete:
+      tags: [Task]
+      summary: 取消异步任务（未接线）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+
+  /tasks/async/{task_id}/hooks:
+    get:
+      tags: [Task]
+      summary: 查询任务的 Webhook 记录（未接线）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+
+  /tasks/async/{task_id}/retry:
+    post:
+      tags: [Task]
+      summary: 重试失败的 Webhook（未接线）
+      parameters:
+        - $ref: '#/components/parameters/TaskId'
+      responses:
+        '200':
+          description: 成功
+
+  # ==================== Session（Task Service） ====================
+  /sessions:
+    get:
+      tags: [Session]
+      summary: 会话列表（task-service 未注册该路径，未验证）
+      responses:
+        '200':
+          description: 成功
+    post:
+      tags: [Session]
+      summary: 创建会话（未验证）
+      responses:
+        '200':
+          description: 成功
+
+  /sessions/{session_id}:
+    get:
+      tags: [Session]
+      summary: 获取会话（未验证）
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 成功
+
+  /sessions/{session_id}/status:
+    put:
+      tags: [Session]
+      summary: 更新会话状态（未验证）
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 成功
+
+  # ==================== AI / Sandbox ====================
+  /ai/agent/chat:
+    post:
+      tags: [AI]
+      summary: Agent 对话（SSE 流式）
+      description: 上游 ai-service 挂载前缀为 `/api/v1/agent`，与 Gateway 剥离后的 `/agent/chat` 不一致，未验证。
+      requestBody:
+        $ref: '#/components/requestBodies/ChatBody'
+      responses:
+        '200':
+          description: text/event-stream
+
+  /ai/sandboxes:
+    get:
+      tags: [AI]
+      summary: 沙箱列表（AI Service 视角）
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/create/{user_id}:
+    post:
+      tags: [AI]
+      summary: 创建沙箱
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sandbox'
+
+  /ai/sandbox/info/{user_id}:
+    get:
+      tags: [AI]
+      summary: 沙箱信息
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sandbox'
+
+  /ai/sandbox/destroy/{user_id}:
+    delete:
+      tags: [AI]
+      summary: 销毁沙箱
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/keepalive/{user_id}:
+    post:
+      tags: [AI]
+      summary: 沙箱保活（重置空闲计时）
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/screenshot/{user_id}:
+    get:
+      tags: [AI]
+      summary: 沙箱截图（CDP）
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 图片（JPEG/PNG，具体类型以 Agent 返回为准）
+          content:
+            image/jpeg: {}
+
+  /ai/sandbox/chat:
+    post:
+      tags: [AI]
+      summary: 沙箱对话
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/chat/stream:
+    post:
+      tags: [AI]
+      summary: 沙箱对话（SSE 流式）
+      responses:
+        '200':
+          description: text/event-stream
+
+  /ai/sandbox/execute/{user_id}:
+    post:
+      tags: [AI]
+      summary: 在沙箱执行工具（`?tool=shell`）
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: tool
+          in: query
+          schema:
+            type: string
+            example: shell
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 工具参数，结构未验证
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/smart/models:
+    get:
+      tags: [AI]
+      summary: 可用模型列表
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/smart/analyze-task:
+    post:
+      tags: [AI]
+      summary: 任务类别分析
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/smart/analyze-mode:
+    post:
+      tags: [AI]
+      summary: 模式分析（`mode_router` 当前恒返回 AUTO）
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/smart/chat/stream:
+    post:
+      tags: [AI]
+      summary: 智能路由对话（SSE 流式）
+      responses:
+        '200':
+          description: text/event-stream
+
+  /ai/sandbox/smart/chat/langgraph/stream:
+    post:
+      tags: [AI]
+      summary: LangGraph 多 Agent 对话（SSE 流式）
+      responses:
+        '200':
+          description: text/event-stream
+
+  /ai/sandbox/smart/chat/dual-mode/stream:
+    post:
+      tags: [AI]
+      summary: 双模式对话（SSE 流式，兼容端点，仍走统一工具集）
+      responses:
+        '200':
+          description: text/event-stream
+
+  /ai/sandbox/smart/langgraph/state/{user_id}/{session_id}:
+    get:
+      tags: [AI]
+      summary: 查询 LangGraph 状态
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: 成功
+
+  # ==================== 沙箱文件管理 ====================
+  /ai/sandbox/files/{user_id}/list:
+    get:
+      tags: [Files]
+      summary: 列出目录
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+            example: /home/sandbox
+      responses:
+        '200':
+          description: 成功
+        '403':
+          description: 路径越界（仅允许 /home/sandbox 与 /tmp）
+
+  /ai/sandbox/files/{user_id}/read:
+    get:
+      tags: [Files]
+      summary: 读取文件
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/files/{user_id}/write:
+    post:
+      tags: [Files]
+      summary: 写入文件
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, content]
               properties:
-                text:
+                path:
+                  type: string
+                content:
+                  type: string
+                encoding:
+                  type: string
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/files/{user_id}/delete:
+    delete:
+      tags: [Files]
+      summary: 删除文件或目录
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/files/{user_id}/rename:
+    post:
+      tags: [Files]
+      summary: 重命名
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /ai/sandbox/files/{user_id}/mkdir:
+    post:
+      tags: [Files]
+      summary: 创建目录
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  # ==================== Screencast ====================
+  /ai/sandbox/screencast/{user_id}/ws:
+    get:
+      tags: [Screencast]
+      summary: CDP Screencast WebSocket（浏览器画面帧流）
+      description: |
+        该路由**不走 JWT 中间件**：JWT 通过 `?token=` 查询参数传入，由 Gateway 的 WSProxy 自行校验，
+        并要求 `claims.user_id` 与路径 `user_id` 一致（否则 403）。
+        前端调用见 `frontend/src/components/BrowserViewer.tsx`。
+        链路：Gateway → Worker Manager `/tools/{user_id}/screencast/ws` → 沙箱 Agent `/cdp/screencast/ws` → Chromium `Page.startScreencast`。
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: token
+          in: query
+          required: true
+          description: JWT（Access Token）
+          schema:
+            type: string
+        - name: quality
+          in: query
+          schema:
+            type: integer
+        - name: maxWidth
+          in: query
+          schema:
+            type: integer
+        - name: maxHeight
+          in: query
+          schema:
+            type: integer
+      responses:
+        '101':
+          description: Switching Protocols（WebSocket，帧数据 + metadata）
+        '401':
+          description: token 缺失或无效
+        '403':
+          description: token 中的 user_id 与路径不一致
+
+  # ==================== Admin（Gateway 本地） ====================
+  /admin/containers:
+    get:
+      tags: [Admin]
+      summary: 容器列表（Gateway 直连 Docker SDK）
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}/stats:
+    get:
+      tags: [Admin]
+      summary: 容器资源统计
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}/logs:
+    get:
+      tags: [Admin]
+      summary: 容器日志
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}/start:
+    post:
+      tags: [Admin]
+      summary: 启动容器
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}/stop:
+    post:
+      tags: [Admin]
+      summary: 停止容器
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}/restart:
+    post:
+      tags: [Admin]
+      summary: 重启容器
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  /admin/containers/{id}:
+    delete:
+      tags: [Admin]
+      summary: 删除容器
+      parameters:
+        - $ref: '#/components/parameters/ContainerId'
+      responses:
+        '200':
+          description: 成功
+
+  # ==================== Worker Manager 直连（:9000） ====================
+  /sandboxes:
+    get:
+      tags: [Worker]
+      summary: 沙箱列表
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sandbox'
+    post:
+      tags: [Worker]
+      summary: 创建沙箱
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
                   type: string
       responses:
         '200':
@@ -494,12 +974,227 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  embedding:
-                    type: array
-                    items:
-                      type: number
+                $ref: '#/components/schemas/Sandbox'
+
+  /sandboxes/get-or-create:
+    post:
+      tags: [Worker]
+      summary: 获取或创建沙箱
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sandbox'
+
+  /sandboxes/metrics:
+    get:
+      tags: [Worker]
+      summary: 沙箱指标（active_sandboxes / max_sandboxes / idle_timeout_minutes）
+      responses:
+        '200':
+          description: 成功
+
+  /sandboxes/{user_id}:
+    get:
+      tags: [Worker]
+      summary: 获取沙箱
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sandbox'
+    delete:
+      tags: [Worker]
+      summary: 销毁沙箱
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /sandboxes/{user_id}/keepalive:
+    post:
+      tags: [Worker]
+      summary: 沙箱保活
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/execute:
+    post:
+      tags: [Worker]
+      summary: 代理执行沙箱工具（`shell` / `wait`）
+      description: 要求请求头 `X-User-ID` 与路径 `user_id` 一致，否则 403（经 Gateway 调用时由中间件自动注入）。
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ToolExecuteRequest'
+      responses:
+        '200':
+          description: 成功
+        '403':
+          description: X-User-ID 与路径不一致
+        '404':
+          description: 沙箱不存在
+
+  /tools/{user_id}/screenshot:
+    get:
+      tags: [Worker]
+      summary: 沙箱截图
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/list:
+    get:
+      tags: [Worker]
+      summary: 沙箱可用工具清单
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: '成功（当前仅 shell、wait）'
+
+  /tools/{user_id}/health:
+    get:
+      tags: [Worker]
+      summary: 沙箱 Agent 健康状态
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/cdp-info:
+    get:
+      tags: [Worker]
+      summary: 沙箱 Chromium CDP 信息
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/execute:
+    post:
+      tags: [Worker]
+      summary: 持久化 Bash 会话执行
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/cwd:
+    get:
+      tags: [Worker]
+      summary: 查询持久会话当前目录
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/env:
+    post:
+      tags: [Worker]
+      summary: 设置持久会话环境变量
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/env/{key}:
+    get:
+      tags: [Worker]
+      summary: 读取持久会话环境变量
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/sessions:
+    get:
+      tags: [Worker]
+      summary: 列出持久 Shell 会话
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/bash/session:
+    delete:
+      tags: [Worker]
+      summary: 销毁持久 Shell 会话
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: 成功
+
+  /tools/{user_id}/screencast/ws:
+    get:
+      tags: [Worker]
+      summary: CDP Screencast WebSocket 中继（供 Gateway 调用）
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '101':
+          description: Switching Protocols
+
+  /containers:
+    get:
+      tags: [Worker]
+      summary: 通用容器列表（不限于沙箱）
+      responses:
+        '200':
+          description: 成功
+    post:
+      tags: [Worker]
+      summary: 创建通用容器（受 AllowedImages 白名单约束）
+      responses:
+        '200':
+          description: 成功
+
+  /metrics:
+    get:
+      tags: [Worker]
+      summary: Worker 指标
+      responses:
+        '200':
+          description: 成功
 
 components:
   securitySchemes:
@@ -507,6 +1202,46 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  parameters:
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+    TaskId:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+    ContainerId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+
+  requestBodies:
+    ChatBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ChatRequest'
 
   schemas:
     User:
@@ -523,6 +1258,26 @@ components:
           type: string
           format: date-time
 
+    RegisterRequest:
+      type: object
+      required: [username, email, password]
+      properties:
+        username:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+
     AuthResponse:
       type: object
       properties:
@@ -530,6 +1285,57 @@ components:
           type: string
         user:
           $ref: '#/components/schemas/User'
+
+    Sandbox:
+      description: 沙箱信息（services/worker-service/internal/sandbox/manager.go 的 Sandbox 结构体）
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        container_id:
+          type: string
+        container_name:
+          type: string
+          example: sandbox-<user 前 8 位>-<8 位随机 ID>
+        status:
+          type: string
+          enum: [creating, running, stopped, error]
+        agent_port:
+          type: integer
+          description: 宿主 127.0.0.1 上映射的随机端口（容器内为 8000）
+        screencast_url:
+          type: string
+          example: ws://localhost:<agent_port>/cdp/screencast/ws
+        created_at:
+          type: string
+          format: date-time
+        last_active:
+          type: string
+          format: date-time
+        resources:
+          type: object
+          properties:
+            cpu_usage:
+              type: number
+            memory_usage:
+              type: integer
+            memory_limit:
+              type: integer
+
+    ToolExecuteRequest:
+      type: object
+      required: [tool]
+      properties:
+        tool:
+          type: string
+          enum: [shell, wait]
+        params:
+          type: object
+          example:
+            command: "ls -la"
+            timeout: 30
 
     Session:
       type: object
@@ -539,7 +1345,6 @@ components:
           format: uuid
         user_id:
           type: string
-          format: uuid
         status:
           type: string
         created_at:
@@ -556,7 +1361,6 @@ components:
           type: integer
         user_id:
           type: string
-          format: uuid
         content:
           type: string
         content_type:
@@ -578,31 +1382,12 @@ components:
           type: string
         user_id:
           type: string
-          format: uuid
         description:
           type: string
         zone_type:
           type: string
         is_active:
           type: boolean
-
-    SystemIndex:
-      type: object
-      properties:
-        id:
-          type: integer
-        service_name:
-          type: string
-        url:
-          type: string
-        title:
-          type: string
-        description:
-          type: string
-        tags:
-          type: array
-          items:
-            type: string
 
     AIIndex:
       type: object
@@ -611,7 +1396,6 @@ components:
           type: integer
         user_id:
           type: string
-          format: uuid
         service_name:
           type: string
         url:
@@ -650,15 +1434,8 @@ components:
           format: uuid
         user_id:
           type: string
-          format: uuid
-        type:
-          type: string
         status:
           type: string
-        title:
-          type: string
-        progress:
-          type: integer
         created_at:
           type: string
           format: date-time

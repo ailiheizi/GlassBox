@@ -2,158 +2,79 @@
 
 ## 概述
 
-NewArch 支持多模型智能路由，根据任务类型自动选择最合适的模型。本文档涵盖模型配置、路由规则和端点设置。
+GlassBox（历史名 NewArch）支持多模型路由，按任务类别选择模型。本文档依据 `services/ai-service/src/config/settings.py`、`services/ai-service/src/core/model_router.py` 与 `docker-compose.yml` 校正。
+
+> **注意**：`docker-compose.yml` 会为 ai-service 注入 `DOUBAO_*` / `DEEPSEEK_*` 环境变量。未在 compose 中声明的变量（如 `SILICONFLOW_*`、`DOUBAO_EMBEDDING_DIMENSIONS`）需自行加入编排或本地运行时设置，否则使用代码默认值。
 
 ## 环境变量配置
 
-编辑 `.env` 文件：
+编辑 `.env` 文件（`.env.example` 中的现有条目）：
 
 ```bash
 # 豆包 API 配置（火山方舟）
 DOUBAO_API_KEY=your_volcengine_api_key
 DOUBAO_API_BASE=https://ark.cn-beijing.volces.com/api/v3
-DOUBAO_MODEL=doubao-seed-1-6-vision-250815          # 默认模型
-DOUBAO_GUI_MODEL=doubao-seed-1-6-vision-250815       # GUI 操作模型
-DOUBAO_VISION_MODEL=doubao-seed-1-6-vision-250815    # 视觉分析模型
-DOUBAO_EMBEDDING_MODEL=doubao-embedding-vision-251215 # Embedding 模型
-DOUBAO_EMBEDDING_DIMENSIONS=2048                      # Embedding 维度
+DOUBAO_MODEL=doubao-seed-1-8-251228              # 代码默认值
+DOUBAO_GUI_MODEL=doubao-seed-1-8-251228          # 代码/compose 默认值（任务类别 gui_operation 使用）
+DOUBAO_VISION_MODEL=doubao-seed-1-8-251228       # 代码/compose 默认值（视觉分析使用）
+DOUBAO_EMBEDDING_MODEL=doubao-embedding-vision-251215  # 代码默认值（.env.example 中现为 doubao-embedding-vision-250615，两者不一致）
+DOUBAO_EMBEDDING_DIMENSIONS=2048                 # 代码默认值（skill_embeddings 向量维度）
 
-# DeepSeek API 配置
+# DeepSeek API 配置（可选）
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_API_BASE=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 
-# SiliconFlow API 配置（备用）
+# SiliconFlow API 配置（可选，代码支持但 compose 未注入）
 SILICONFLOW_API_KEY=your_siliconflow_api_key
 SILICONFLOW_API_BASE=https://api.siliconflow.cn/v1
 SILICONFLOW_VISION_MODEL=deepseek-ai/deepseek-vl2
 ```
 
-## 火山方舟端点配置
+## 模型标识的写法
 
-### 基础模型 vs 推理接入点
-
-```
-基础模型（Base Model）
-    -> 在火山方舟控制台创建推理接入点
-推理接入点（Endpoint）
-    -> 获得端点 ID（如 ep-20250203-abc123）
-在代码中使用端点 ID
-```
-
-**重要**：代码中使用的是**推理接入点 ID**，不是基础模型名称。
-
-### 创建推理接入点
-
-1. 访问 [火山方舟控制台](https://console.volcengine.com/ark/region:ark+cn-beijing/endpoint)
-2. 点击「创建推理接入点」
-3. 选择基础模型
-4. 记录生成的端点 ID
-
-### 推荐端点配置
-
-| 用途 | 推荐基础模型 | 说明 |
-|------|------------|------|
-| GUI 操作 | doubao-1.5-ui-tars | 专为 GUI 交互设计，准确率最高 |
-| 视觉分析 | doubao-pro-32k | 通用能力强，支持视觉 |
-| Embedding | doubao-embedding-vision | 向量化，用于 Skill 检索 |
-
-### 配置方案
-
-#### 方案 1：完整配置（最佳性能）
-
-```bash
-DOUBAO_GUI_MODEL=ep-20250203-gui123       # GUI 专用端点
-DOUBAO_VISION_MODEL=ep-20250203-vision456  # 视觉分析端点
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx       # 代码生成
-```
-
-#### 方案 2：单端点简化配置
-
-```bash
-DOUBAO_GUI_MODEL=ep-20250203-abc123
-DOUBAO_VISION_MODEL=ep-20250203-abc123     # 复用同一端点
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
-```
-
-#### 方案 3：纯 DeepSeek（最简单）
-
-```bash
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
-# 不配置豆包模型，所有任务使用 DeepSeek
-# 注意：DeepSeek 不支持视觉任务
-```
+`settings.py` 中三个豆包模型的默认值是**模型名称**（如 `doubao-seed-1-8-251228`）而非推理接入点 ID。文档历史版本要求使用 `ep-*` 推理接入点 ID，这一点**未在当前代码中得到验证**；如果平台侧要求使用接入点 ID，直接把这些变量替换为对应的 `ep-*` 值即可（代码只是把变量值透传给 API），但具体填哪种形式需以火山方舟控制台当前要求为准。
 
 ## 智能模型路由
 
-### 任务类别与模型映射
+`core/model_router.py` 定义任务类别与模型映射。注意 `gui_operation` 是**任务类别标签**（由关键词触发，如「点击 / 滚动 / 输入」），落到 `DOUBAO_GUI_MODEL`，与沙箱内是否安装桌面环境无关——沙箱当前没有桌面环境，GUI 类操作由 browser-use 经 CDP 完成。
 
-| 类别 | 描述 | 默认模型 |
-|------|------|---------|
-| `gui_operation` | GUI 操作（点击、输入等） | DOUBAO_GUI_MODEL |
-| `visual_analysis` | 视觉分析（理解截图） | DOUBAO_VISION_MODEL |
-| `code_generation` | 代码生成 | deepseek-chat |
-| `reasoning` | 复杂推理 | deepseek-reasoner |
-| `general_chat` | 通用对话 | DOUBAO_VISION_MODEL |
+| 类别 | 描述 | 映射模型（代码） |
+|------|------|------------------|
+| `gui_operation` | 界面交互类任务 | `DOUBAO_GUI_MODEL`（未配置时回退到视觉模型） |
+| `visual_analysis` | 视觉分析（理解截图） | `DOUBAO_VISION_MODEL`（未配置豆包时回退 SiliconFlow） |
+| `code_generation` | 代码生成 | `deepseek-chat` |
+| `reasoning` | 复杂推理 | `deepseek-reasoner` |
+| `general_chat` | 通用对话 | `deepseek-chat` |
 
 ### 路由模式
 
-#### 关键词路由（默认，推荐）
+#### 关键词路由（默认）
 
-```json
-{ "use_llm_routing": false }
-```
+`ModelRouter.KEYWORD_RULES`（`core/model_router.py`）中的实际关键词：
 
-- 快速（无需调用 LLM）
-- 免费（不消耗额外 API）
-- 准确率 80-85%
+- `gui_operation`：点击 / click / 双击 / 右键 / 输入 / type / 按键 / press / 滚动 / scroll / 拖拽 / drag / 打开 / open / 关闭 / close / 最大最小化 / 切换 / 选择
+- `visual_analysis`：看到 / 显示 / 截图 / 画面 / 界面 / 窗口 / 内容 / what do you see / describe / analyze / 观察 / 屏幕
+- `code_generation`：写代码 / 生成代码 / 实现 / 函数 / 类 / 方法 / write code / generate / implement / function / class
+- `reasoning`：为什么 / 如何 / 分析 / 推理 / 解释 / 原因 / why / how / analyze / reason / explain
 
-**关键词规则**：
-
-- GUI 操作：点击、双击、右键、输入、按键、滚动、拖拽、打开、关闭
-- 视觉分析：看到、显示、截图、画面、界面、窗口、观察
-- 代码生成：写代码、生成代码、实现、函数、类、方法
-- 复杂推理：为什么、如何、分析、推理、解释
-
-#### LLM 智能路由
-
-```json
-{ "use_llm_routing": true }
-```
-
-- 更准确（90%+）
-- 理解复杂和模糊任务
-- 额外延迟 100-200ms
-
-#### 强制指定模型
-
-```json
-{ "force_model": "doubao-1.5-ui-tars-250328" }
-```
+请求参数 `use_llm_routing: true` 时会额外调用 LLM 判断类别，失败则回退关键词路由。（历史文档中「关键词路由准确率 80-85%」「LLM 路由 90%+」等数字**未见代码或测试依据，已删除**。）
 
 ### API 端点
 
+均经 Gateway（`gateway/internal/router/routes.go`）：
+
 ```bash
-# 智能路由聊天（SSE 流式）
-POST /api/v1/ai/sandbox/smart/chat/stream
-
-# LangGraph 多 Agent 聊天（SSE 流式）
-POST /api/v1/ai/sandbox/smart/chat/langgraph/stream
-
-# 双模式智能聊天（SSE 流式）
-POST /api/v1/ai/sandbox/smart/chat/dual-mode/stream
-
-# 任务分析（调试用）
-POST /api/v1/ai/sandbox/smart/analyze-task
-
-# 模式分析
-POST /api/v1/ai/sandbox/smart/analyze-mode
-
-# 模型列表
-GET /api/v1/ai/sandbox/smart/models
+POST /api/v1/ai/sandbox/smart/chat/stream              # 智能路由聊天（SSE）
+POST /api/v1/ai/sandbox/smart/chat/langgraph/stream    # LangGraph 多 Agent（SSE）
+GET  /api/v1/ai/sandbox/smart/langgraph/state/:user_id/:session_id
+POST /api/v1/ai/sandbox/smart/analyze-mode             # 模式分析（当前恒返回 AUTO）
+POST /api/v1/ai/sandbox/smart/analyze-task             # 任务分析
+POST /api/v1/ai/sandbox/smart/chat/dual-mode/stream    # 双模式兼容端点（SSE，仍走统一工具集）
+GET  /api/v1/ai/sandbox/smart/models                   # 模型列表
 ```
 
-### 请求参数
+### 请求参数（smart 系列，字段以 `smart_sandbox_routes.py` / `schemas.py` 为准）
 
 ```json
 {
@@ -170,50 +91,29 @@ GET /api/v1/ai/sandbox/smart/models
 }
 ```
 
+`force_mode` 与 `force_model` 仍接受，但 `mode_router.py` 已统一返回 `AUTO`，`force_mode` 不再改变工具集。
+
 ## 模型对比
 
-| 模型 | 视觉 | GUI | 代码 | 推理 | 成本 |
-|------|------|-----|------|------|------|
-| doubao-1.5-ui-tars | 优 | 优 | 良 | 良 | 中 |
-| doubao-pro-32k | 良 | 良 | 良 | 良 | 中 |
-| deepseek-chat | 无 | 无 | 优 | 良 | 低 |
-| deepseek-reasoner | 无 | 无 | 良 | 优 | 低 |
+历史文档中的模型对比表（`doubao-1.5-ui-tars` / `doubao-pro-32k` / `deepseek-*` 的能力与成本）**无法从本仓库代码验证**，已删除。选型请以火山方舟 / DeepSeek 官方文档为准。
 
 ## 调试
 
-### 检查环境变量
-
 ```bash
-docker exec newarch-ai-service env | grep -E "DOUBAO|DEEPSEEK"
+# 查看 ai-service 实际生效的环境变量（容器内，8086 未发布到宿主）
+docker exec newarch-ai-service env | grep -E "DOUBAO|DEEPSEEK|SILICONFLOW"
+
+# 查看日志
+docker compose logs -f ai-service
+
+# 容器内健康检查
+docker exec newarch-ai-service curl -s http://localhost:8086/health
 ```
 
-### 查看路由决策日志
+### 常见问题
 
-```bash
-docker-compose logs -f ai-service | grep -i "model\|endpoint\|error"
-```
-
-### 测试端点连通性
-
-```bash
-# 测试豆包端点
-curl -X POST "https://ark.cn-beijing.volces.com/api/v3/chat/completions" \
-  -H "Authorization: Bearer $DOUBAO_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "your-endpoint-id", "messages": [{"role": "user", "content": "hello"}]}'
-
-# 测试 DeepSeek
-curl -X POST "https://api.deepseek.com/v1/chat/completions" \
-  -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "deepseek-chat", "messages": [{"role": "user", "content": "hello"}]}'
-```
-
-### 常见错误
-
-**"model does not exist"**：使用了基础模型名称而非推理接入点 ID。在火山方舟控制台创建推理接入点，使用返回的 `ep-*` ID。
-
-**路由失败回退**：系统有多层后备 - LLM 路由失败回退到关键词路由，关键词路由失败回退到默认通用模型。
+- **`DOUBAO_API_KEY` 未设置**：所有视觉/豆包相关能力不可用；`model_router.py` 的 `_determine_vision_provider()` 会按「豆包 → SiliconFlow → 兜底」顺序选择视觉模型，最终兜底值是硬编码的 `doubao-1-5-vision-pro-32k`
+- **路由失败回退**：LLM 路由失败回退关键词路由，关键词路由无命中则走默认类别
 
 ## 自定义路由规则
 
@@ -224,11 +124,7 @@ curl -X POST "https://api.deepseek.com/v1/chat/completions" \
 class TaskCategory(str, Enum):
     DATA_ANALYSIS = "data_analysis"  # 新增
 
-# 更新映射
-TASK_MODEL_MAPPING = {
-    TaskCategory.DATA_ANALYSIS: ModelType.DEEPSEEK_CHAT,
-}
-
+# 更新映射（TASK_MODEL_MAPPING 构建于 ModelRouter.__init__ 内）
 # 添加关键词
 KEYWORD_RULES = {
     TaskCategory.DATA_ANALYSIS: [
@@ -236,3 +132,5 @@ KEYWORD_RULES = {
     ],
 }
 ```
+
+对应的 `ModelType` 枚举值也需一并补充。

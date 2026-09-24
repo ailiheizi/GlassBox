@@ -1,6 +1,9 @@
 # 开源依赖说明
 
-本文档列出 NewArch 项目使用的所有开源组件及其许可证信息。
+本文档列出 GlassBox（历史名 NewArch）项目使用的开源组件及其许可证信息。
+
+> 依据：各服务的 `requirements.txt` / `pyproject.toml`、`go.mod`、`docker-compose.yml`、各 `Dockerfile`。
+> 沙箱内 Debian 系统包数量较多且随基础镜像变动，**未逐一核对**，相关行已标注；如需精确清单请在镜像内执行 `dpkg -l` 并查阅 `/usr/share/doc/*/copyright`。
 
 ---
 
@@ -63,10 +66,13 @@
 | [python-multipart](https://github.com/Kludex/python-multipart) | 0.0.6 | Apache-2.0 | 表单解析 |
 | [LangGraph](https://github.com/langchain-ai/langgraph) | >=0.2.0 | MIT | 多 Agent 编排 |
 | [Langfuse](https://github.com/langfuse/langfuse-python) | >=2.50.0 | MIT | LLM 可观测性 |
-| [pymilvus](https://github.com/milvus-io/pymilvus) | >=2.3.0 | Apache-2.0 | Milvus 向量数据库客户端 |
-| [PyJWT](https://github.com/jpadilla/pyjwt) | >=2.8.0 | MIT | JWT 认证 |
-| [volcengine-python-sdk](https://github.com/volcengine/volcengine-python-sdk) | >=5.0.8 | Apache-2.0 | 火山引擎 SDK |
-| [rank-bm25](https://github.com/dorianbrown/rank_bm25) | >=0.2.2 | Apache-2.0 | BM25 文本检索 |
+| [browser-use](https://github.com/browser-use/browser-use) | >=0.11.0,<1.0.0 | MIT | 基于 DOM 的浏览器自动化（经 CDP 连接沙箱 Chromium） |
+| [pymilvus](https://github.com/milvus-io/pymilvus) | 未固定 | Apache-2.0 | Milvus 向量数据库客户端（**代码引用，`requirements.txt` 未声明**） |
+| [PyJWT](https://github.com/jpadilla/pyjwt) | 未固定 | MIT | JWT 认证（**代码引用，`requirements.txt` 未声明**） |
+| [rank-bm25](https://github.com/dorianbrown/rank_bm25) | 未固定 | Apache-2.0 | BM25 文本检索（**代码引用，`requirements.txt` 未声明**） |
+
+> AI Service 的声明文件是 `services/ai-service/requirements.txt`。上表中标记「未声明」的包在源码中被 import，但未写入该文件，属于依赖声明缺口。
+> 历史条目 `volcengine-python-sdk` 在当前代码中既无引用也无声明，已移除。
 
 ### Browser Service（`services/browser-service`）
 
@@ -83,18 +89,22 @@
 
 ### Sandbox Agent（`sandbox/tools`）
 
+声明文件：`sandbox/tools/requirements.txt`。
+
 | 组件 | 版本 | 许可证 | 用途 |
 |------|------|--------|------|
-| [FastAPI](https://github.com/tiangolo/fastapi) | 0.109.0 | MIT | 工具执行 API |
-| [Uvicorn](https://github.com/encode/uvicorn) | 0.27.0 | BSD-3-Clause | ASGI 服务器 |
-| [Pydantic](https://github.com/pydantic/pydantic) | 2.5.3 | MIT | 数据验证 |
-| [PyAutoGUI](https://github.com/asweigart/pyautogui) | 0.9.54 | BSD-3-Clause | GUI 自动化操作 |
-| [Pillow](https://github.com/python-pillow/Pillow) | 10.2.0 | HPND | 截图处理 |
-| [python-xlib](https://github.com/python-xlib/python-xlib) | 0.33 | LGPL-2.1 | X11 协议绑定 |
-| [httpx](https://github.com/encode/httpx) | 0.26.0 | BSD-3-Clause | HTTP 客户端 |
-| [python-multipart](https://github.com/Kludex/python-multipart) | 0.0.6 | Apache-2.0 | 表单解析 |
+| [FastAPI](https://github.com/tiangolo/fastapi) | >=0.109.0 | MIT | Agent 工具执行 / 文件 / CDP API |
+| [Uvicorn](https://github.com/encode/uvicorn) | >=0.27.0 | BSD-3-Clause | ASGI 服务器 |
+| [Pydantic](https://github.com/pydantic/pydantic) | >=2.5.3 | MIT | 数据验证 |
+| [httpx](https://github.com/encode/httpx) | >=0.26.0 | BSD-3-Clause | HTTP 客户端（调用 Chromium CDP HTTP 端点） |
+| [python-multipart](https://github.com/Kludex/python-multipart) | >=0.0.6 | Apache-2.0 | 表单解析 |
+| [websockets](https://github.com/python-websockets/websockets) | >=12.0 | BSD-3-Clause | CDP Screencast WebSocket 客户端 |
+
+历史条目（PyAutoGUI、python-xlib、Pillow）已随沙箱瘦身移除，当前不存在于沙箱依赖中。
 
 ### 测试依赖
+
+声明文件：`services/ai-service/pyproject.toml`、`services/browser-service/pyproject.toml`。
 
 | 组件 | 版本 | 许可证 | 用途 |
 |------|------|--------|------|
@@ -213,48 +223,48 @@
 | [Node.js](https://nodejs.org/) (node:20-alpine) | MIT | 前端构建 |
 | [Nginx](https://nginx.org/) (nginx:alpine) | BSD-2-Clause | 前端静态文件服务 |
 | [Golang](https://go.dev/) (golang:1.24-alpine) | BSD-3-Clause | Go 服务构建 |
-| [Python](https://www.python.org/) (python:3.11-slim) | PSF License | Python 服务运行时 |
-| [Debian](https://www.debian.org/) (bookworm-slim) | DFSG 兼容（多种自由软件许可证） | 沙箱基础镜像 |
-| [Alpine Linux](https://alpinelinux.org/) | MIT | 轻量运行时基础镜像 |
+| [Alpine Linux](https://alpinelinux.org/) (alpine:3.19 / alpine:latest) | MIT | Go 服务运行时 |
+| [Python](https://www.python.org/) (python:3.11-slim) | PSF License | Python 服务运行时（ai-service、browser-service） |
+| [Debian](https://www.debian.org/) (debian:trixie) | DFSG 兼容（多种自由软件许可证） | 沙箱基础镜像（Debian 13） |
 
 ---
 
 ## 沙箱系统组件
 
-沙箱容器基于 Debian 12 (Bookworm)，包含以下系统级开源组件：
+沙箱容器基于 **Debian 13 (trixie)**，`sandbox/Dockerfile` 中实际安装的组件如下（**无桌面环境、无 VNC / noVNC、无 Web IDE**）：
 
-### 桌面环境与显示
-
-| 组件 | 许可证 | 用途 |
-|------|--------|------|
-| [Xfce4](https://xfce.org/) | GPL-2.0+ | 轻量桌面环境 |
-| [Xvfb](https://www.x.org/) | MIT (X11) | 虚拟帧缓冲 |
-| [x11vnc](https://github.com/LibVNC/x11vnc) | GPL-2.0 | VNC 服务器 |
-| [noVNC](https://github.com/novnc/noVNC) | MPL-2.0 | Web VNC 客户端 |
-| [websockify](https://github.com/novnc/websockify) | LGPL-3.0 | WebSocket 代理 |
-
-### 开发工具
+### 显示与浏览器
 
 | 组件 | 许可证 | 用途 |
 |------|--------|------|
-| [OpenVSCode Server](https://github.com/gitpod-io/openvscode-server) | MIT | Web IDE |
-| [Chromium](https://www.chromium.org/) | BSD-3-Clause (主体) | 浏览器 |
-| [tmux](https://github.com/tmux/tmux) | ISC | 终端复用 / BashSession |
+| [Xvfb](https://www.x.org/) | MIT (X11) | 虚拟帧缓冲（Chromium 非 headless 需要 DISPLAY） |
+| [Chromium](https://www.chromium.org/) | BSD-3-Clause（主体） | 浏览器；CDP 截图与 Screencast 的来源（Debian 原生包，非 snap） |
+| [socat](http://www.dest-unreach.org/socat/) | GPL-2.0 | 将 CDP 从 127.0.0.1:19222 转发到 0.0.0.0:9222，供同网络容器访问 |
+
+### 运行时与开发工具
+
+| 组件 | 许可证 | 用途 |
+|------|--------|------|
+| [Python](https://www.python.org/) 3 + pip + venv | PSF License | Agent 服务运行时 |
+| [Node.js](https://nodejs.org/) + npm | MIT | 沙箱内脚本能力 |
+| [tmux](https://github.com/tmux/tmux) | ISC | 持久化 Shell 会话（`bash_session.py`） |
 | [Git](https://git-scm.com/) | GPL-2.0 | 版本控制 |
+| [gosu](https://github.com/tianon/gosu) | Apache-2.0 | entrypoint 中从 root 降权到 `sandbox` 用户 |
 
-### 系统工具
+### 系统工具与字体
 
 | 组件 | 许可证 | 用途 |
 |------|--------|------|
-| [scrot](https://github.com/resurrecting-open-source-projects/scrot) | MIT-feh | 截图工具 |
-| [xdotool](https://github.com/jordansissel/xdotool) | BSD-3-Clause | X11 自动化 |
-| [curl](https://curl.se/) | MIT (curl license) | HTTP 工具 |
+| [curl](https://curl.se/) | MIT (curl license) | HTTP 工具（CDP 就绪探测等） |
 | [wget](https://www.gnu.org/software/wget/) | GPL-3.0 | 下载工具 |
 | [htop](https://github.com/htop-dev/htop) | GPL-2.0 | 进程监控 |
 | [vim](https://www.vim.org/) | Vim License (GPL 兼容) | 文本编辑器 |
 | [nano](https://www.nano-editor.org/) | GPL-3.0 | 文本编辑器 |
-| [gosu](https://github.com/tianon/gosu) | Apache-2.0 | 用户切换 |
-| [D-Bus](https://www.freedesktop.org/wiki/Software/dbus/) | AFL-2.1 / GPL-2.0+ | 进程间通信 |
+| net-tools / iputils-ping / procps | GPL-2.0 等（未逐一核对） | 网络与进程排查 |
+| fonts-wqy-zenhei / fonts-wqy-microhei | 未逐一核对，请以镜像内 `/usr/share/doc/*/copyright` 为准 | 中文字体 |
+| locales | LGPL-2.1 / GPL（未逐一核对） | 中文 locale（zh_CN.UTF-8） |
+
+> 历史文档曾列出 Xfce4、x11vnc、noVNC、websockify、OpenVSCode Server、pyautogui、python-xlib、scrot、xdotool、D-Bus 等组件，**这些已随沙箱瘦身移除**，见 [SANDBOX_SLIM_HISTORY.md](./SANDBOX_SLIM_HISTORY.md)。
 
 ---
 
@@ -269,10 +279,11 @@
 | BSD-3-Clause / BSD-2-Clause | ~15+ | 宽松许可，可自由使用 |
 | ISC | 3 | 宽松许可，等同 MIT |
 | PSF / PostgreSQL License / HPND | 3 | 宽松许可 |
-| GPL-2.0 / GPL-3.0 | ~8 | Copyleft，仅限沙箱容器内 |
-| LGPL-2.1 / LGPL-3.0 | 2 | 弱 Copyleft |
-| MPL-2.0 | 1 | 文件级 Copyleft |
+| GPL-2.0 / GPL-3.0 | 沙箱容器内若干（socat、Git、wget、vim、nano、htop、procps 等） | Copyleft，仅限沙箱容器内 |
+| MPL-2.0 | 0（原 MPL 组件 noVNC 已移除） | — |
 | AGPL-3.0 | 1 (MinIO) | 强 Copyleft，需注意网络使用 |
+
+> 表格为粗分类，沙箱内 Debian 系统包的许可证未逐一核对。
 
 ### 需要特别关注的许可证
 
@@ -286,13 +297,12 @@
    - 当前使用 `redis:7-alpine`，如版本 < 7.4 则仍为 BSD-3-Clause
    - 建议锁定版本或评估新许可证对云部署的影响
 
-3. **GPL 组件（Xfce4、x11vnc、Git、wget、vim、nano、htop）**
+3. **GPL 组件（socat、Git、wget、vim、nano、htop 等）**
    - 均运行在沙箱容器内部，不与主服务代码链接
    - 如分发沙箱镜像，需确保 GPL 合规（提供源码获取途径）
 
-4. **LGPL 组件（python-xlib、websockify）**
-   - python-xlib (LGPL-2.1)：PyAutoGUI 的 X11 后端依赖，动态导入
-   - websockify (LGPL-3.0)：noVNC 的 WebSocket 代理，独立进程运行
+4. **沙箱内的历史 LGPL 依赖已消失**
+   - 早前的 python-xlib（PyAutoGUI 的 X11 后端）与 websockify（Web 客户端 WebSocket 代理，LGPL-3.0）已随沙箱瘦身移除，当前沙箱不再包含 LGPL 组件（locales 等 Debian 包未逐一核对）
 
 5. **Langfuse 双许可**
    - 核心功能为 MIT 许可，可自由使用

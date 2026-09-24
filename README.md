@@ -181,10 +181,10 @@ AI Service 暴露给模型的工具（`services/ai-service/src/core/sandbox.py`�
 
 ## 📖 文档
 
-- [系统架构](docs/ARCHITECTURE.md)（注意：该文档部分内容仍为旧的 VNC/桌面方案描述）
+- [系统架构](docs/ARCHITECTURE.md)
 - [快速开始](docs/GETTING_STARTED.md)
-- [沙箱精简改造实现说明](docs/SANDBOX_SLIM_IMPLEMENTATION.md)
-- [异步任务指南](docs/async-tasks-guide.md)
+- [沙箱瘦身历史记录](docs/SANDBOX_SLIM_HISTORY.md)（历史存档：旧桌面/远程桌面方案已废弃）
+- [异步任务指南](docs/async-tasks-guide.md)（**注意**：handler 已实现但 task-service 未注册路由，接口当前不可用，详见文首说明）
 - [Bash 工具最佳实践](docs/bash-tool-best-practices.md)
 - [模型配置](docs/MODEL_CONFIGURATION.md)
 - [数据库连接](docs/DATABASE_CONNECTIONS.md)

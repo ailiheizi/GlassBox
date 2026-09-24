@@ -1,14 +1,18 @@
 # Async Tasks + Webhooks + Multi-Agent 功能
 
+> ## ⚠️ 当前状态：HTTP 接口未接通（以代码为准）
+>
+> - `services/task-service/internal/handler/async_task_handler.go`（创建/查询/取消异步任务、查询 hooks、重试 hook、统计）与 `internal/repository/async_task_repo.go`、`internal/service/{hook_service,multi_agent_service}.go`、`internal/worker/{hook_worker,task_worker}.go`、`internal/queue/redis_queue.go` 均已实现。
+> - 但 `services/task-service/cmd/server/main.go` **只注册了同步任务路由**（`/api/v1/tasks` 的 CRUD、start/complete/fail/cancel/progress/logs），**没有注册 `/tasks/async` 分组**，`AsyncTaskHandler` 未被实例化。
+> - 与此同时，`gateway/internal/router/routes.go` 已经声明并向 task-service 转发 `/api/v1/tasks/async*`。
+>
+> 结论：**按本文档直接调用这些接口目前不会成功**。下面内容描述的是「已实现但未接线」的能力；接通方式（在 task-service 注册 async 路由）不在本次文档整理范围内。相关数据库表也需先手动执行迁移（见下）。
+>
+> 另外，本文档的响应示例、`agent_count` 上限、Webhook 事件列表等来自 handler 与迁移脚本代码，**未经端到端验证**。
+
 ## 概述
 
-NewArch 现在支持异步任务执行，具有以下特性：
-- ✅ 非阻塞任务执行
-- ✅ Webhook 回调通知
-- ✅ 多 Agent 并行执行（1-10 个 agents）
-- ✅ 进度追踪
-- ✅ 结果聚合
-- ✅ 自动重试机制
+异步任务能力按设计包含：非阻塞任务执行、Webhook 回调通知、多 Agent 并行执行、进度追踪、结果聚合、失败重试（均可在上述 handler / worker / 迁移脚本中看到对应实现）。
 
 ## 快速开始
 
